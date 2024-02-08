@@ -11,13 +11,19 @@ typedef _Atomic(LLNode*) AtomicLLNodePtr;
 
 struct LLNode {
     AtomicLLNodePtr next;
-    // TODO
+    Value item;
 };
 
 LLNode* LLNode_new(Value item)
 {
     LLNode* node = (LLNode*)malloc(sizeof(LLNode));
-    // TODO
+    if (node == NULL) {
+        return NULL;
+    }
+
+    atomic_init(&node->next, NULL);
+    node->item = item;
+
     return node;
 }
 
@@ -30,27 +36,95 @@ struct LLQueue {
 LLQueue* LLQueue_new(void)
 {
     LLQueue* queue = (LLQueue*)malloc(sizeof(LLQueue));
-    // TODO
+    if (queue == NULL) {
+        return NULL;
+    }
+
+    LLNode* new_node = LLNode_new(EMPTY_VALUE);
+    if (new_node == NULL) {
+        return NULL;
+    }
+
+    atomic_store(&queue->head, new_node);
+    atomic_store(&queue->tail, new_node);
+
     return queue;
 }
 
 void LLQueue_delete(LLQueue* queue)
 {
-    // TODO
+    LLNode* node;
+
+    while ((node = atomic_load(&queue->head)) != NULL) {
+        LLNode* next = atomic_load(&node->next);
+        free(node);
+        atomic_store(&queue->head, next);
+    }
+
     free(queue);
 }
 
 void LLQueue_push(LLQueue* queue, Value item)
 {
-    // TODO
+    LLNode* new_node = LLNode_new(item);
+    LLNode* tail;
+    LLNode* next;
+    
+    while (true) {
+        tail = atomic_load(&queue->tail);
+        next = atomic_load(&tail->next);
+
+        if (tail == atomic_load(&queue->tail)) {
+            if (next == NULL) {
+                if (atomic_compare_exchange_strong(&tail->next, &next, new_node)) {
+                    break;
+                }
+            }
+            else {
+                atomic_compare_exchange_strong(&queue->tail, &tail, next);
+            }
+        }
+    }
+
+    atomic_compare_exchange_strong(&queue->tail, &tail, new_node);
 }
 
 Value LLQueue_pop(LLQueue* queue)
 {
-    return EMPTY_VALUE; // TODO
+    LLNode* head;
+    LLNode* tail;
+    LLNode* next;
+    Value item;
+
+    while (true) {
+        head = atomic_load(&queue->head);
+        tail = atomic_load(&queue->tail);
+        next = atomic_load(&head->next);
+
+        if (head == atomic_load(&queue->head)) {
+            if (head == tail) {
+                if (next == NULL) {
+                    return EMPTY_VALUE;
+                }
+
+                atomic_compare_exchange_strong(&queue->tail, &tail, next);
+            }
+            else {
+                item = next->item;
+                if (atomic_compare_exchange_strong(&queue->head, &head, next)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    free(head);
+    return item;
 }
 
 bool LLQueue_is_empty(LLQueue* queue)
 {
-    return false; // TODO
+    LLNode* next = atomic_load(&queue->head->next);
+
+    return next == NULL;
 }
