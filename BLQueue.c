@@ -18,7 +18,6 @@ struct BLNode {
     _Atomic(int) pop_idx;
 };
 
-// TODO BLNode_new
 
 BLNode* BLNode_new() {
     BLNode* new_node = (BLNode*)malloc(sizeof(BLNode));
@@ -52,11 +51,14 @@ BLQueue* BLQueue_new(void)
 
     BLNode* node = BLNode_new();
     if (node == NULL) {
+        free(queue);
         return NULL;
     }
 
     atomic_store(&queue->head, node);
     atomic_store(&queue->tail, node);
+
+    HazardPointer_initialize(&queue->hp);
 
     return queue;
 }
@@ -70,7 +72,7 @@ void BLQueue_delete(BLQueue* queue)
         free(current);
         current = next;
     }
-
+    HazardPointer_finalize(&queue->hp);
     free(queue);
 }
 
@@ -80,26 +82,29 @@ void BLQueue_push(BLQueue* queue, Value item)
     int push_idx;
     while (true) {
         tail_node = atomic_load(&queue->tail);
-        push_idx = atomic_load(&tail_node->push_idx);
-        atomic_fetch_add(&tail_node->push_idx, 1);
+        push_idx = atomic_fetch_add(&tail_node->push_idx, 1);
         
         if (push_idx < BUFFER_SIZE) {
-            if (atomic_load(&tail_node->buffer[push_idx]) == TAKEN_VALUE) {
-                continue;
-            }
-            else {
-                atomic_store(&tail_node->buffer[push_idx], item);
-                break;
+            Value expected = EMPTY_VALUE;
+            if(atomic_compare_exchange_strong(&tail_node->buffer[push_idx], 
+                &expected, item)) {
+                    break;
             }
         }
         else {
             BLNode* new_node = BLNode_new();
+            if (new_node == NULL) {
+                continue;
+            }
+
             atomic_store(&new_node->buffer[0], item);
             atomic_store(&new_node->push_idx, 1);
             BLNode* expected_tail = tail_node;
-            if (atomic_compare_exchange_strong(&queue->tail, &expected_tail, new_node)) {
-                atomic_store(&expected_tail->next, new_node);
-                break;
+
+            if (atomic_compare_exchange_strong(&queue->tail, 
+                &expected_tail, new_node)) {
+                    atomic_store(&expected_tail->next, new_node);
+                    break;
             }
             else {
                 free(new_node);
@@ -114,55 +119,69 @@ Value BLQueue_pop(BLQueue* queue)
     int pop_idx;
     Value item;
     while (true) {
-        head_node = atomic_load(&queue->head);
-        pop_idx = atomic_load(&head_node->pop_idx);
-        atomic_fetch_add(&head_node->pop_idx, 1);
+        head_node = HazardPointer_protect(&queue->hp, (const _Atomic(void*)*)&queue->head);
+        pop_idx = atomic_fetch_add(&head_node->pop_idx, 1);
 
         if (pop_idx < BUFFER_SIZE) {
-            item = atomic_load(&head_node->buffer[pop_idx]);
+            item = atomic_exchange(&head_node->buffer[pop_idx], TAKEN_VALUE);
             if (item == EMPTY_VALUE) {
+                HazardPointer_clear(&queue->hp);
                 continue;
             }
             else {
-                atomic_store(&head_node->buffer[pop_idx], TAKEN_VALUE);
+                HazardPointer_clear(&queue->hp);
                 return item;
             }
         }
         else {
             BLNode* next_node = atomic_load(&head_node->next);
             if (next_node == NULL) {
+                HazardPointer_clear(&queue->hp);
                 return EMPTY_VALUE;
             }
             else {
                 BLNode* expected_head = head_node;
                 if (atomic_compare_exchange_strong(&queue->head, 
                     &expected_head, next_node)) {
-                           free(expected_head);
-                    }
+                        HazardPointer_retire(&queue->hp, expected_head);
+                }
             }
         }
+        HazardPointer_clear(&queue->hp);
     }
-
-
-    return EMPTY_VALUE; 
 }
 
 bool BLQueue_is_empty(BLQueue* queue)
 {
+    BLNode* current = atomic_load(&queue->head);
+    
+    while (current != NULL) {
+        int push_idx = atomic_load(&current->push_idx);
+        int pop_idx = atomic_load(&current->pop_idx);
 
-    BLNode* node_head = atomic_load(&queue->head);
-    bool is_empty = false;
-
-    while (atomic_load(&node_head->push_idx) ==
-            atomic_load(&node_head->pop_idx)) {
-        
-        node_head = atomic_load(&node_head->next);
-        if (node_head == NULL) {
-            is_empty = true;
-            break;
+        if (push_idx != pop_idx) {
+            return false;
         }
 
+        current = atomic_load(&current->next);
     }
+
+    return true;
+
+
+    // BLNode* node_head = atomic_load(&queue->head);
+    // bool is_empty = false;
+
+    // while (atomic_load(&node_head->push_idx) ==
+    //         atomic_load(&node_head->pop_idx)) {
+        
+    //     node_head = atomic_load(&node_head->next);
+    //     if (node_head == NULL) {
+    //         is_empty = true;
+    //         break;
+    //     }
+
+    // }
     
-    return is_empty;
+    // return is_empty;
 }

@@ -5,11 +5,17 @@
 #include <stdint.h>
 
 #define MAX_THREADS 128
-static const int RETIRED_THRESHOLD = MAX_THREADS;
+#define RETIRED_THRESHOLD 10
+
+typedef struct RetiredNode {
+    void* ptr;
+    struct RetiredNode* next;
+} RetiredNode;
 
 struct HazardPointer {
     _Atomic(void*) pointer[MAX_THREADS];
-    // TODO
+    RetiredNode* retired[MAX_THREADS];
+    size_t retired_count[MAX_THREADS];
 };
 typedef struct HazardPointer HazardPointer;
 
