@@ -41,6 +41,7 @@ SimpleQueue* SimpleQueue_new(void)
 
     SimpleQueueNode* dummy_node = SimpleQueueNode_new(EMPTY_VALUE);
     if (dummy_node == NULL) {
+        free(queue);
         return NULL;
     }
 

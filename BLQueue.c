@@ -153,35 +153,12 @@ Value BLQueue_pop(BLQueue* queue)
 
 bool BLQueue_is_empty(BLQueue* queue)
 {
-    BLNode* current = atomic_load(&queue->head);
-    
-    while (current != NULL) {
-        int push_idx = atomic_load(&current->push_idx);
-        int pop_idx = atomic_load(&current->pop_idx);
+    BLNode* head = HazardPointer_protect(&queue->hp, (const _Atomic(void*)*)&queue->head);
+    int push_idx = atomic_load(&head->push_idx);
+    int pop_idx = atomic_load(&head->pop_idx);
+    BLNode* next = atomic_load(&head->next);
 
-        if (push_idx != pop_idx) {
-            return false;
-        }
+    HazardPointer_clear(&queue->hp);
 
-        current = atomic_load(&current->next);
-    }
-
-    return true;
-
-
-    // BLNode* node_head = atomic_load(&queue->head);
-    // bool is_empty = false;
-
-    // while (atomic_load(&node_head->push_idx) ==
-    //         atomic_load(&node_head->pop_idx)) {
-        
-    //     node_head = atomic_load(&node_head->next);
-    //     if (node_head == NULL) {
-    //         is_empty = true;
-    //         break;
-    //     }
-
-    // }
-    
-    // return is_empty;
+    return (push_idx == pop_idx) && (next == NULL);
 }
