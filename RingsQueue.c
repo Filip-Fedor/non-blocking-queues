@@ -14,8 +14,8 @@ typedef struct RingsQueueNode RingsQueueNode;
 struct RingsQueueNode {
     _Atomic(RingsQueueNode*) next;
     Value buffer[RING_SIZE];
-    _Atomic(int) push_idx;
-    _Atomic(int) pop_idx;
+    _Atomic(int64_t) push_idx;
+    _Atomic(int64_t) pop_idx;
 };
 
 RingsQueueNode* RingsQueueNode_new() {
@@ -78,11 +78,11 @@ void RingsQueue_push(RingsQueue* queue, Value item)
     pthread_mutex_lock(&queue->push_mtx);
 
     RingsQueueNode* tail_node = queue->tail;
-    int push_idx = atomic_load(&tail_node->push_idx);
-    int pop_idx = atomic_load(&tail_node->pop_idx);
+    int64_t push_idx = atomic_load(&tail_node->push_idx);
+    int64_t pop_idx = atomic_load(&tail_node->pop_idx);
 
     if (push_idx - pop_idx < RING_SIZE) {
-        int idx = push_idx % RING_SIZE;
+        int64_t idx = push_idx % RING_SIZE;
         tail_node->buffer[idx] = item;
         atomic_fetch_add(&tail_node->push_idx, 1);
     }
@@ -103,13 +103,15 @@ Value RingsQueue_pop(RingsQueue* queue)
 
     RingsQueueNode* head_node;
     RingsQueueNode* next_node;
-    int pop_idx;
+    int64_t pop_idx;
+    int64_t push_idx;
 
     while (true) {
         head_node = queue->head;
+        next_node = atomic_load(&head_node->next);
         pop_idx = atomic_load(&head_node->pop_idx);
-        if (pop_idx == atomic_load(&head_node->push_idx)) {
-            next_node = atomic_load(&head_node->next);
+        push_idx = atomic_load(&head_node->push_idx);
+        if (pop_idx == push_idx) {
             if (next_node == NULL) {
                 pthread_mutex_unlock(&queue->pop_mtx);
                 return EMPTY_VALUE;
@@ -122,7 +124,7 @@ Value RingsQueue_pop(RingsQueue* queue)
         }
     }
 
-    int idx = pop_idx % RING_SIZE;
+    int64_t idx = pop_idx % RING_SIZE;
     Value item = head_node->buffer[idx];
     atomic_fetch_add(&head_node->pop_idx, 1);
 
@@ -136,16 +138,11 @@ bool RingsQueue_is_empty(RingsQueue* queue)
     pthread_mutex_lock(&queue->pop_mtx);
 
     RingsQueueNode* head_node = queue->head;
-    bool is_empty = false;
-    while (atomic_load(&head_node->push_idx) == 
-            atomic_load(&head_node->pop_idx)) {
+    int64_t head_push_idx = atomic_load(&head_node->push_idx);
+    int64_t head_pop_idx = atomic_load(&head_node->pop_idx);
+    RingsQueueNode* next_node = atomic_load(&head_node->next);
 
-        head_node = atomic_load(&head_node->next);
-        if (head_node == NULL) {
-            is_empty = true;
-            break;
-        }
-    }
+    bool is_empty = (head_push_idx == head_pop_idx) && (next_node == NULL);
 
     pthread_mutex_unlock(&queue->pop_mtx);
 
