@@ -111,6 +111,7 @@ Value RingsQueue_pop(RingsQueue* queue)
         next_node = atomic_load(&head_node->next);
         pop_idx = atomic_load(&head_node->pop_idx);
         push_idx = atomic_load(&head_node->push_idx);
+        
         if (pop_idx == push_idx) {
             if (next_node == NULL) {
                 pthread_mutex_unlock(&queue->pop_mtx);

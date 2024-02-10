@@ -73,7 +73,6 @@ void SimpleQueue_push(SimpleQueue* queue, Value item)
     pthread_mutex_lock(&queue->tail_mtx);
 
     SimpleQueueNode* new_node = SimpleQueueNode_new(item);
-
     atomic_store(&queue->tail->next, new_node);
     queue->tail = new_node;
 
@@ -82,8 +81,9 @@ void SimpleQueue_push(SimpleQueue* queue, Value item)
 
 Value SimpleQueue_pop(SimpleQueue* queue)
 {
-    Value item = EMPTY_VALUE;
     pthread_mutex_lock(&queue->head_mtx);
+
+    Value item = EMPTY_VALUE;
     SimpleQueueNode* head_node = queue->head;
     SimpleQueueNode* pop_node = atomic_load(&queue->head->next);
     
@@ -95,8 +95,9 @@ Value SimpleQueue_pop(SimpleQueue* queue)
     item = pop_node->item;
     queue->head = pop_node;
 
-    pthread_mutex_unlock(&queue->head_mtx);
     free(head_node);
+
+    pthread_mutex_unlock(&queue->head_mtx);
 
     return item;
 }

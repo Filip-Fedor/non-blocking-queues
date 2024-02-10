@@ -71,15 +71,18 @@ void HazardPointer_retire(HazardPointer* hp, void* ptr)
     if (hp->retired_count[_thread_id] > RETIRED_THRESHOLD) {
         node = hp->retired[_thread_id];
         RetiredNode* prev = NULL;
+
         while (node != NULL) {
             void* p = node->ptr;
             bool is_reserved = false;
+
             for (int j = 0; j < _num_threads; j++) {
                 if (atomic_load(&hp->pointer[j]) == p) {
                     is_reserved = true;
                     break;
                 }
             }
+            
             if (!is_reserved) {
                 if (prev != NULL) {
                     prev->next = node->next;
