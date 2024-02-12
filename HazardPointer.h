@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define MAX_THREADS 128
-#define RETIRED_THRESHOLD 128
+static int RETIRED_THRESHOLD = 128;
 
 typedef struct RetiredNode {
     void* ptr;

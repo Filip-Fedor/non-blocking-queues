@@ -74,7 +74,8 @@ void LLQueue_push(LLQueue* queue, Value item)
     LLNode* next;
     
     while (true) {
-        tail = atomic_load(&queue->tail);
+        tail = HazardPointer_protect(&queue->hp, 
+                                    (const _Atomic(void*)*)&queue->tail);
         next = atomic_load(&tail->next);
 
         if (tail == atomic_load(&queue->tail)) {
@@ -83,6 +84,7 @@ void LLQueue_push(LLQueue* queue, Value item)
                                                     &next, new_node)) {
                     atomic_compare_exchange_strong(&queue->tail,
                                                     &tail, new_node);
+                    HazardPointer_clear(&queue->hp);
                     return;
                 }
             }
@@ -90,6 +92,7 @@ void LLQueue_push(LLQueue* queue, Value item)
                 atomic_compare_exchange_strong(&queue->tail, &tail, next);
             }
         }
+        HazardPointer_clear(&queue->hp);
     }
 }
 
@@ -115,12 +118,15 @@ Value LLQueue_pop(LLQueue* queue)
                 atomic_compare_exchange_strong(&queue->tail, &tail, next);
             }
             else {
-                item = next->item;
-                if (atomic_compare_exchange_strong(&queue->head, 
+                HazardPointer_protect(&queue->hp, (const _Atomic(void*)*)&next);
+                if (next != NULL) {
+                    item = next->item;
+                    if (atomic_compare_exchange_strong(&queue->head, 
                                                     &head, next)) {
-                    HazardPointer_retire(&queue->hp, head);
-                    HazardPointer_clear(&queue->hp);
-                    return item;
+                        HazardPointer_retire(&queue->hp, head);
+                        HazardPointer_clear(&queue->hp);
+                        return item;
+                    }
                 }
             }
         }

@@ -79,7 +79,8 @@ void BLQueue_push(BLQueue* queue, Value item)
     BLNode* tail_node;
     int push_idx;
     while (true) {
-        tail_node = atomic_load(&queue->tail);
+        tail_node = HazardPointer_protect(&queue->hp,
+                    (const _Atomic(void*)*)&queue->tail);
         push_idx = atomic_fetch_add(&tail_node->push_idx, 1);
         
         if (push_idx < BUFFER_SIZE) {
@@ -87,7 +88,7 @@ void BLQueue_push(BLQueue* queue, Value item)
 
             if(atomic_compare_exchange_strong(&tail_node->buffer[push_idx],
                 &expected, item)) {
-
+                    
                     break;
             }
         }
@@ -112,6 +113,8 @@ void BLQueue_push(BLQueue* queue, Value item)
             }
         }
     }
+    
+    HazardPointer_clear(&queue->hp);
 }
 
 Value BLQueue_pop(BLQueue* queue)

@@ -63,6 +63,9 @@ void HazardPointer_clear(HazardPointer* hp)
 void HazardPointer_retire(HazardPointer* hp, void* ptr)
 {
     RetiredNode* node = (RetiredNode*)malloc(sizeof(RetiredNode));
+    if (node == NULL) {
+        return;
+    }
     node->ptr = ptr;
     node->next = hp->retired[_thread_id];
     hp->retired[_thread_id] = node;
