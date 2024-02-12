@@ -118,10 +118,15 @@ Value LLQueue_pop(LLQueue* queue)
                 atomic_compare_exchange_strong(&queue->tail, &tail, next);
             }
             else {
-                HazardPointer_protect(&queue->hp, (const _Atomic(void*)*)&next);
+                HazardPointer_protect(&queue->hp, 
+                                    (const _Atomic(void*)*)&next);
                 if (next != NULL) {
+                    if (next != atomic_load(&queue->head->next)) {
+                        HazardPointer_clear(&queue->hp);
+                        continue;
+                    }
                     item = next->item;
-                    if (atomic_compare_exchange_strong(&queue->head, 
+                    if (atomic_compare_exchange_strong(&queue->head,
                                                     &head, next)) {
                         HazardPointer_retire(&queue->hp, head);
                         HazardPointer_clear(&queue->hp);
